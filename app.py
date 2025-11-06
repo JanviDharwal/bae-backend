@@ -1,28 +1,30 @@
 from flask import Flask, request, jsonify
 from flask_cors import CORS
-import cv2, base64, numpy as np, tensorflow as tf
+import cv2, base64, numpy as np, tensorflow as tf, os
 from tensorflow.keras.preprocessing import image
 from tensorflow.keras.applications.mobilenet_v2 import preprocess_input
 
 app = Flask(__name__)
-# Allow requests from React frontend
 CORS(app, resources={r"/*": {"origins": "*"}})
 
-# === Model Path ===
-MODEL_PATH = r"C:\Users\janvi\OneDrive\Desktop\SEM 5\BAE\BAE--Bringing-Aesthetics-to-Emotions\models\mood_model\mobilenetv2_mood_3class.h5"
+BASE_DIR = os.path.dirname(os.path.abspath(__file__))
+MODEL_PATH = os.path.join(BASE_DIR, "models/mood_model/mobilenetv2_mood_3class.h5")
 MOOD_LABELS = ['happy', 'neutral', 'sad']
 
 # === Load Model ===
 print("Loading model...")
 model = tf.keras.models.load_model(MODEL_PATH)
-print("Model loaded successfully from:", MODEL_PATH)
+print(" Model loaded successfully from:", MODEL_PATH)
 
-# === Health Check Route ===
+# === Routes ===
+@app.route('/')
+def home():
+    return jsonify({'message': 'BAE Mood Detection API is live!'})
+
 @app.route('/health', methods=['GET'])
 def health():
     return jsonify({'status': 'ok'})
 
-# === Prediction Route ===
 @app.route('/predict', methods=['POST'])
 def predict():
     try:
@@ -47,7 +49,6 @@ def predict():
         confidence = float(np.max(preds))
 
         print(f"Prediction: {mood} ({confidence*100:.2f}%)")
-
         return jsonify({'mood': mood, 'confidence': f"{confidence*100:.2f}%"})
 
     except Exception as e:
@@ -55,5 +56,5 @@ def predict():
         return jsonify({'error': str(e)})
 
 if __name__ == '__main__':
-    # Bind to 127.0.0.1 so React can reach it
-    app.run(host='127.0.0.1', port=5000, debug=True)
+    port = int(os.environ.get("PORT", 5000))
+    app.run(host='0.0.0.0', port=port)
