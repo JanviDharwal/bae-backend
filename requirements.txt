@@ -6,3 +6,4 @@ pillow
 gunicorn
 pymongo
 python-dotenv
+opencv-python-headless
