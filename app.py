@@ -45,14 +45,24 @@ wardrobe_collection = db['wardrobe']
 favourites_collection = db['favourites']
 
 # =======================================
+# BASE DIRECTORY
+# =======================================
+BASE_DIR = os.path.dirname(os.path.abspath(__file__))
+
+# =======================================
 # MOOD MODEL
 # =======================================
-MOOD_MODEL_PATH = os.path.join(BASE_DIR, "models/mood_model/mobilenetv2_mood_3class.h5")
+MOOD_MODEL_PATH = os.path.join(BASE_DIR, "models", "mood_model", "mobilenetv2_mood_3class.h5")
 MOOD_LABELS = ['happy', 'neutral', 'sad']
 
 try:
-    mood_model = tf.keras.models.load_model(MOOD_MODEL_PATH)
-    print("Mood Model Loaded Successfully")
+    print("Loading mood model...")
+    if os.path.exists(MOOD_MODEL_PATH):
+        mood_model = tf.keras.models.load_model(MOOD_MODEL_PATH)
+        print("Mood Model Loaded Successfully")
+    else:
+        print("Mood model file not found at:", MOOD_MODEL_PATH)
+        mood_model = None
 except Exception as e:
     print("Mood model load error:", e)
     mood_model = None
@@ -60,22 +70,19 @@ except Exception as e:
 # =======================================
 # OUTFIT MODEL
 # =======================================
-OUTFIT_MODEL_PATH = os.path.join(BASE_DIR, "models/outfit_model/mobilenetv2_top_bottom_savedmodel")
+OUTFIT_MODEL_PATH = os.path.join(BASE_DIR, "models", "outfit_model", "mobilenetv2_top_bottom_savedmodel")
 
 try:
-    outfit_model = tf.keras.layers.TFSMLayer(OUTFIT_MODEL_PATH, call_endpoint='serving_default')
-    print("Outfit Model Loaded")
+    print("Loading outfit model...")
+    if os.path.exists(OUTFIT_MODEL_PATH):
+        outfit_model = tf.keras.layers.TFSMLayer(OUTFIT_MODEL_PATH, call_endpoint='serving_default')
+        print("Outfit Model Loaded Successfully")
+    else:
+        print("Outfit model folder not found at:", OUTFIT_MODEL_PATH)
+        outfit_model = None
 except Exception as e:
     print("Outfit model load error:", e)
     outfit_model = None
-
-def preprocess_for_outfit(img):
-    img = cv2.resize(img, (224, 224))
-    img = cv2.cvtColor(img, cv2.COLOR_BGR2RGB)
-    img = image.img_to_array(img)
-    img = np.expand_dims(img, axis=0)
-    img = preprocess_input(img)
-    return img
 
 # =======================================
 # ROUTES
