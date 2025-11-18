@@ -1,37 +1,34 @@
 from flask import Flask, request, jsonify
 from flask_cors import CORS
-from werkzeug.utils import secure_filename
-import cv2, base64, numpy as np
+import cv2, base64, numpy as np, tensorflow as tf
 from tensorflow.keras.preprocessing import image
 from tensorflow.keras.applications.mobilenet_v2 import preprocess_input
 from pymongo import MongoClient
 import cloudinary, cloudinary.uploader
+from bson import ObjectId
+import random
+from datetime import datetime
 from PIL import Image
 import io, os
 
-# ==============================
+# =======================================
 # FLASK APP
-# ==============================
+# =======================================
 app = Flask(__name__)
 CORS(app, resources={r"/*": {"origins": "*"}})
 
-# ==============================
-# BASE DIRECTORY
-# ==============================
-BASE_DIR = os.path.dirname(os.path.abspath(__file__))
-
-# ==============================
+# =======================================
 # CLOUDINARY CONFIG
-# ==============================
+# =======================================
 cloudinary.config(
     cloud_name="dggce9lgq",
     api_key="595392624381522",
     api_secret="HBAkBl7dzKlh-LDZHYs37K5D74c"
 )
 
-# ==============================
+# =======================================
 # MONGODB ATLAS
-# ==============================
+# =======================================
 MONGO_URI = "mongodb+srv://baeUser:behencodes@cluster0.4ffhppa.mongodb.net/baeDB"
 client = MongoClient(MONGO_URI)
 db = client['baeDB']
@@ -40,35 +37,31 @@ users_collection = db['users']
 wardrobe_collection = db['wardrobe']
 favourites_collection = db['favourites']
 
-# ==============================
-# MODEL PATHS & LABELS
-# ==============================
-MOOD_MODEL_PATH = os.path.join(BASE_DIR, "models", "mood_model", "mobilenetv2_mood_3class.h5")
+# =======================================
+# MOOD MODEL
+# =======================================
+MOOD_MODEL_PATH = "models/mood_model/mobilenetv2_mood_3class.h5"
 MOOD_LABELS = ['happy', 'neutral', 'sad']
 
-OUTFIT_MODEL_PATH = os.path.join(BASE_DIR, "models", "outfit_model", "mobilenetv2_top_bottom_savedmodel")
+try:
+    mood_model = tf.keras.models.load_model(MOOD_MODEL_PATH)
+    print("Mood Model Loaded Successfully")
+except Exception as e:
+    print("Mood model load error:", e)
+    mood_model = None
 
-# ==============================
-# LAZY LOADING MODELS
-# ==============================
-mood_model = None
-outfit_model = None
+# =======================================
+# OUTFIT MODEL
+# =======================================
+OUTFIT_MODEL_PATH = "models/outfit_model/mobilenetv2_top_bottom_savedmodel"
 
-def get_mood_model():
-    global mood_model
-    if mood_model is None:
-        from tensorflow.keras.models import load_model
-        print("Loading Mood Model...")
-        mood_model = load_model(MOOD_MODEL_PATH)
-    return mood_model
-
-def get_outfit_model():
-    global outfit_model
-    if outfit_model is None:
-        from tensorflow.keras.layers import TFSMLayer
-        print("Loading Outfit Model...")
-        outfit_model = TFSMLayer(OUTFIT_MODEL_PATH, call_endpoint='serving_default')
-    return outfit_model
+try:
+    from tensorflow.keras.layers import TFSMLayer
+    outfit_model = TFSMLayer(OUTFIT_MODEL_PATH, call_endpoint='serving_default')
+    print("Outfit Model Loaded")
+except Exception as e:
+    print("Outfit model load error:", e)
+    outfit_model = None
 
 def preprocess_for_outfit(img):
     img = cv2.resize(img, (224, 224))
@@ -78,13 +71,9 @@ def preprocess_for_outfit(img):
     img = preprocess_input(img)
     return img
 
-def remove_bg(img):
-    from rembg import remove
-    return remove(img)
-
-# ==============================
-# ROUTES
-# ==============================
+# =======================================
+# BASIC ROUTES
+# =======================================
 @app.route('/')
 def home():
     return jsonify({"message": "BAE Backend Running"})
@@ -93,7 +82,9 @@ def home():
 def health():
     return jsonify({"status": "OK"})
 
-# --- USER AUTH ---
+# =======================================
+# USER AUTH
+# =======================================
 @app.route('/signup', methods=['POST'])
 def signup():
     data = request.get_json()
@@ -110,7 +101,12 @@ def signup():
     if users_collection.find_one({'email': email}):
         return jsonify({'success': False, 'message': 'Email already registered'}), 400
 
-    users_collection.insert_one({"username": username, "email": email, "password": password})
+    users_collection.insert_one({
+        "username": username,
+        "email": email,
+        "password": password
+    })
+
     return jsonify({'success': True, 'full_name': username, 'email': email})
 
 @app.route('/login', methods=['POST'])
@@ -120,12 +116,15 @@ def login():
     password = data.get("password")
 
     user = users_collection.find_one({"email": email, "password": password})
+
     if not user:
         return jsonify({'success': False, 'message': 'Invalid credentials'}), 401
 
     return jsonify({'success': True, 'full_name': user['username'], 'email': user['email']})
 
-# --- PROFILE ---
+# =======================================
+# PROFILE
+# =======================================
 @app.route('/get_profile', methods=['GET'])
 def get_profile():
     email = request.args.get("email")
@@ -139,17 +138,21 @@ def update_profile():
     data = request.get_json()
     email = data.get('email')
     username = data.get('username')
+
     result = users_collection.update_one({"email": email}, {"$set": {"username": username}})
     if result.matched_count == 0:
         return jsonify({'success': False, 'message': 'User not found'}), 404
     return jsonify({'success': True, 'username': username})
 
-# --- MOOD DETECTION ---
+# =======================================
+# MOOD DETECTION
+# =======================================
 @app.route('/predict', methods=['POST'])
 def predict():
     try:
         data = request.get_json()
         img_data = data['image']
+
         img_bytes = base64.b64decode(img_data.split(',')[1])
         img_arr = np.frombuffer(img_bytes, np.uint8)
         img = cv2.imdecode(img_arr, cv2.IMREAD_COLOR)
@@ -160,8 +163,7 @@ def predict():
         x = np.expand_dims(x, axis=0)
         x = preprocess_input(x)
 
-        model = get_mood_model()
-        preds = model.predict(x)
+        preds = mood_model.predict(x)
         mood = MOOD_LABELS[np.argmax(preds)]
         conf = float(np.max(preds))
 
@@ -169,7 +171,9 @@ def predict():
     except Exception as e:
         return jsonify({"error": str(e)}), 500
 
-# --- CLOUDINARY UPLOAD WITH BG REMOVAL ---
+# =======================================
+# CLOUDINARY UPLOAD (NO REMBG)
+# =======================================
 @app.route('/upload-image', methods=['POST'])
 def upload_image():
     try:
@@ -178,10 +182,9 @@ def upload_image():
 
         file = request.files["image"]
         img = Image.open(file).convert("RGBA")
-        img_no_bg = remove_bg(img)
 
         buf = io.BytesIO()
-        img_no_bg.save(buf, format="PNG")
+        img.save(buf, format="PNG")
         buf.seek(0)
 
         upload = cloudinary.uploader.upload(
@@ -192,11 +195,13 @@ def upload_image():
             resource_type="image"
         )
 
-        return jsonify({"message": "Uploaded and background removed", "url": upload["secure_url"]})
+        return jsonify({"message": "Uploaded successfully", "url": upload["secure_url"]})
     except Exception as e:
         return jsonify({"error": str(e)}), 500
 
-# --- WARDROBE ---
+# =======================================
+# WARDROBE ROUTES
+# =======================================
 @app.route('/wardrobe/add', methods=['POST'])
 def add_wardrobe():
     try:
@@ -209,10 +214,8 @@ def add_wardrobe():
             return jsonify({"error": "Missing userId"}), 400
 
         img = Image.open(file).convert("RGBA")
-        img_no_bg = remove_bg(img)
-
         buf = io.BytesIO()
-        img_no_bg.save(buf, format="PNG")
+        img.save(buf, format="PNG")
         buf.seek(0)
 
         upload = cloudinary.uploader.upload(
@@ -224,12 +227,11 @@ def add_wardrobe():
         )
         image_url = upload["secure_url"]
 
-        # Outfit prediction
-        img_arr = np.array(img_no_bg)
+        # Outfit Prediction
+        img_arr = np.array(img)
         img_arr = cv2.cvtColor(img_arr, cv2.COLOR_RGBA2BGR)
         x = preprocess_for_outfit(img_arr)
-        model = get_outfit_model()
-        output = model(x)
+        output = outfit_model(x)
         pred = list(output.values())[0].numpy()
         predicted_class = "Topwear" if pred[0][0] < 0.5 else "Bottomwear"
 
@@ -254,10 +256,8 @@ def get_wardrobe():
         del i["_id"]
     return jsonify({"items": items})
 
-# ==============================
+# =======================================
 # RUN SERVER
-# ==============================
+# =======================================
 if __name__ == "__main__":
-    port = int(os.environ.get("PORT", 5000))
-    host = '0.0.0.0'
-    app.run(host=host, port=port, debug=True)
+    app.run(host='0.0.0.0', port=5000, debug=True)
