@@ -245,19 +245,9 @@ def add_wardrobe():
         return jsonify({"message": "Wardrobe item added", "imageUrl": image_url, "predicted_category": predicted_class})
 
     except Exception as e:
-        return jsonify({"error": str(e)}), 500
+        print("Error:", e)
+        return jsonify({'error': str(e)})
 
-@app.route('/wardrobe/all', methods=['GET'])
-def get_wardrobe():
-    user_id = request.args.get("userId")
-    items = list(wardrobe_collection.find({"userId": user_id}))
-    for i in items:
-        i["id"] = str(i["_id"])
-        del i["_id"]
-    return jsonify({"items": items})
-
-# =======================================
-# RUN SERVER
-# =======================================
-if __name__ == "__main__":
-    app.run(host='0.0.0.0', port=5000, debug=True)
+if __name__ == '__main__':
+    # Bind to 127.0.0.1 so React can reach it
+    app.run(host='127.0.0.1', port=5000, debug=True)
